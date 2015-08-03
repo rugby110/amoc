@@ -55,7 +55,8 @@ make_user(Id, R) ->
     user_spec(ProfileId, Password, R).
 
 start(MyId) ->
-    Cfg = make_user(MyId, <<"res1">>),
+    Res = <<"res1">>,
+    Cfg = make_user(MyId, Res),
 
     IsChecker = MyId rem ?CHECKER_SESSIONS_INDICATOR == 0,
 
@@ -71,50 +72,50 @@ start(MyId) ->
             exit(connection_failed)
     end,
 
-    do(IsChecker, MyId, Client),
+    MyJID = make_jid(MyId),
+    lager:warning("my jid ~p", [MyJID]),
+    do(IsChecker, <<MyJID/binary, "/" , Res/binary>>, MyId, Client),
 
     timer:sleep(?SLEEP_TIME_AFTER_SCENARIO),
     send_presence_unavailable(Client),
     escalus_connection:stop(Client).
 
-do(_, MyId, Client) ->
+do(_, MyJID, MyId, Client) ->
 
     escalus_connection:set_filter_predicate(Client, fun allow_only_pubsub_related/1),
 
     send_presence_available(Client),
     timer:sleep(1000),
-    create_node(Client, MyId),
+    create_node(MyJID, MyId, Client),
     timer:sleep(2000),
     NeighbourIds = lists:delete(MyId, lists:seq(max(1,MyId-?NUMBER_OF_PREV_NEIGHBOURS),
                                                 MyId+?NUMBER_OF_NEXT_NEIGHBOURS)),
-    subscribe_to_neighbour_nodes(Client, NeighbourIds),
-    push_messages(Client, NeighbourIds).
+    subscribe_to_neighbour_nodes(MyJID, Client, NeighbourIds).
+%%     push_messages(MyJID, Client, NeighbourIds).
 
 allow_only_pubsub_related(Stanza) ->
     escalus_pred:is_stanza_from(?PUBSUB_ADDR, Stanza).
 
-create_node(Client, Id) ->
+create_node(MyJID, Id, Client) ->
     NodeName = make_pubsub_node(Id),
-    MyJID = make_jid(Id),
     CreateNodeStanza = escalus_pubsub_stanza:create_node_stanza(MyJID, ?PUBSUB_ADDR, NodeName),
     escalus_connection:send(Client, CreateNodeStanza),
     _CreateResp = escalus_connection:get_stanza(Client, create_resp, 5000),
     SubscribeStanza = escalus_pubsub_stanza:subscribe_by_user_stanza(MyJID, NodeName, ?PUBSUB_ADDR),
     escalus_connection:send(Client, SubscribeStanza),
-    SubResp = escalus_connection:get_stanza(Client, subscri_resp, 5000),
-    lager:warning("create stanza ~p, resp ~p", [SubscribeStanza, SubResp]).
+    SubResp = escalus_connection:get_stanza(Client, sub_own_resp, 5000),
+    lager:warning("sub own resp ~p", [SubResp]).
 
-subscribe_to_neighbour_nodes(Client, Ids) ->
-    [subscribe_to_node(Client, Id) || Id <- Ids].
+subscribe_to_neighbour_nodes(MyJid, Client, Ids) ->
+    [subscribe_to_node(MyJid, Client, Id) || Id <- Ids].
 
-subscribe_to_node(Client, Id) ->
-    NodeName = make_pubsub_node(Id).
+subscribe_to_node(MyJID, Client, Id) ->
+    NodeName = make_pubsub_node(Id),
+    SubscribeStanza = escalus_pubsub_stanza:subscribe_by_user_stanza(MyJID, NodeName, ?PUBSUB_ADDR),
+    escalus_connection:send(Client, SubscribeStanza),
+    SubResp = escalus_connection:get_stanza(Client, sub_resp, 5000),
+    lager:warning("sub resp ~p", [SubResp]).
 
-push_messages(Client, Ids) ->
-    [push_message(Client, Id) || Id <- Ids].
-
-push_message(Client, Id) ->
-    NodeName = make_pubsub_node(Id).
 
 make_pubsub_node(Id) ->
     IdBin = integer_to_binary(Id),
