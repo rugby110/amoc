@@ -9,7 +9,7 @@
 %% Every CHECKER_SESSIONS_INDICATOR is a checker session which just measures message TTD
 %%
 %%==============================================================================
--module(mongoose_pubsub).
+-module(mongoose_pubsub_publish).
 
 -include_lib("exml/include/exml.hrl").
 -include("pubsub_common.hrl").
@@ -21,6 +21,7 @@
 -define(NUMBER_OF_SEND_MESSAGE_REPEATS, 73).
 -define(SLEEP_TIME_AFTER_EVERY_MESSAGE, 20000).
 
+
 -define(PUBSUB_ADDR, <<"pubsub.", (?HOST)/binary>>).
 
 -export([start/1]).
@@ -29,12 +30,9 @@
 -define(MESSAGES_CT, [amoc, counters, messages_sent]).
 -define(MESSAGE_TTD_CT, [amoc, times, message_ttd]).
 
+
 init() ->
     lager:info("init some metrics"),
-%%     exometer:new(?MESSAGES_CT, spiral),
-%%     exometer_report:subscribe(exometer_report_graphite, ?MESSAGES_CT, [one, count], 10000),
-%%     exometer:new(?MESSAGE_TTD_CT, histogram),
-%%     exometer_report:subscribe(exometer_report_graphite, ?MESSAGE_TTD_CT, [mean, min, max, median, 95, 99, 999], 10000),
     ok.
 
 start(MyId) ->
@@ -60,7 +58,7 @@ start(MyId) ->
     do(IsChecker, <<MyJID/binary, "/" , Res/binary>>, MyId, Client),
 
     timer:sleep(?SLEEP_TIME_AFTER_SCENARIO),
-    pusub_utils:send_presence_unavailable(Client),
+    pubsub_utils:send_presence_unavailable(Client),
     escalus_connection:stop(Client).
 
 do(_, MyJID, MyId, Client) ->
@@ -71,18 +69,19 @@ do(_, MyJID, MyId, Client) ->
     timer:sleep(1000),
     NodeName = pubsub_utils:make_pubsub_node_id(MyId),
     pubsub_utils:create_node(MyJID, MyId, Client, ?PUBSUB_ADDR, NodeName),
-
     timer:sleep(2000),
     NeighbourIds = lists:delete(MyId, lists:seq(max(1,MyId-?NUMBER_OF_PREV_NEIGHBOURS),
-                                                MyId+?NUMBER_OF_NEXT_NEIGHBOURS)),
-    subscribe_to_neighbour_nodes(MyJID, Client, NeighbourIds).
+                                                 MyId+?NUMBER_OF_NEXT_NEIGHBOURS)),
+    subscribe_to_neighbour_nodes(MyJID, Client, NeighbourIds),
+    pubsub_utils:publish_to_node(MyJID, MyId, Client, ?PUBSUB_ADDR, NodeName).
+
 %%     push_messages(MyJID, Client, NeighbourIds).
 
-allow_only_pubsub_related(Stanza) ->
-     escalus_pred:is_stanza_from(?PUBSUB_ADDR, Stanza).
+
 
 subscribe_to_neighbour_nodes(MyJid, Client, Ids) ->
     [pubsub_utils:subscribe_to_node(MyJid, Client, Id, ?PUBSUB_ADDR) || Id <- Ids].
+
 
 receive_forever(Client) ->
     Stanza = escalus_connection:get_stanza(Client, message, infinity),
@@ -100,4 +99,9 @@ receive_forever(Client) ->
             ok
     end,
     receive_forever(Client).
+
+allow_only_pubsub_related(Stanza) ->
+     escalus_pred:is_stanza_from(?PUBSUB_ADDR, Stanza).
+
+
 
