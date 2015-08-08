@@ -16,26 +16,40 @@
 
 -define(CHECKER_SESSIONS_INDICATOR, 10). %% How often a checker session should be generated
 -define(SLEEP_TIME_AFTER_SCENARIO, 10000). %% wait 10s after scenario before disconnecting
--define(NUMBER_OF_PREV_NEIGHBOURS, 2).
--define(NUMBER_OF_NEXT_NEIGHBOURS, 1).
--define(NUMBER_OF_SEND_MESSAGE_REPEATS, 73).
--define(SLEEP_TIME_AFTER_EVERY_MESSAGE, 20000).
-
+-define(NUMBER_OF_PREV_NEIGHBOURS, 0). %2
+-define(NUMBER_OF_NEXT_NEIGHBOURS, 1). %2
+-define(NUMBER_OF_SEND_MESSAGE_REPEATS, 20).
+-define(SLEEP_TIME_AFTER_EVERY_MESSAGE, 10000).
 
 -define(PUBSUB_ADDR, <<"pubsub.", (?HOST)/binary>>).
 
 -export([start/1]).
 -export([init/0]).
 
--define(MESSAGES_CT, [amoc, counters, messages_sent]).
--define(MESSAGE_TTD_CT, [amoc, times, message_ttd]).
-
+-define(MESSAGE_PUBSUB_TTD_CT, [amoc, times, message_pubsub_ttd]).
+-define(PUBSUB_TT_CREATE_CT, [amoc, times, message_pubsub_ttc]).
+-define(PUBSUB_TT_SUBSCRIBE_CT, [amoc, times, message_pubsub_tts]).
+-define(PUBSUB_TT_RECEIVE_CT, [amoc, times, message_pubsub_ttr]).
 
 init() ->
-    lager:info("init some metrics"),
-    ok.
+    %% %% dbg:tracer(),
+    %% %% dbg:p(all,call),
+    %% %% dbg:tpl(?MODULE,[]),
+
+    [begin
+         exometer:new(Name, histogram),
+         exometer_report:subscribe(exometer_report_graphite, Name, [mean, min, max, median, 95, 99, 999], 10000)
+     end || Name <- [
+                     ?MESSAGE_PUBSUB_TTD_CT,
+                     ?PUBSUB_TT_CREATE_CT,
+                     ?PUBSUB_TT_SUBSCRIBE_CT,
+                     ?PUBSUB_TT_RECEIVE_CT]].
 
 start(MyId) ->
+    %% dbg:tracer(),
+    %% dbg:p(self(), call),
+    %% dbg:tpl(?MODULE,[]),
+
     Res = <<"res1">>,
     Cfg = pubsub_utils:make_user(MyId, Res),
 
@@ -54,7 +68,8 @@ start(MyId) ->
     end,
 
     MyJID = pubsub_utils:make_jid(MyId),
-    lager:warning("my jid ~p", [MyJID]),
+    lager:warning("~n-------- my JID: ~p, MyId: ~p, my PID: ~p~n", [MyJID, MyId, self()]),
+
     do(IsChecker, <<MyJID/binary, "/" , Res/binary>>, MyId, Client),
 
     timer:sleep(?SLEEP_TIME_AFTER_SCENARIO),
@@ -67,38 +82,67 @@ do(_, MyJID, MyId, Client) ->
 
     pubsub_utils:send_presence_available(Client),
     timer:sleep(1000),
+
+    TimeBeforeCreateNode = os:timestamp(),
+
     NodeName = pubsub_utils:make_pubsub_node_id(MyId),
+
     pubsub_utils:create_node(MyJID, MyId, Client, ?PUBSUB_ADDR, NodeName),
+    exometer:update(?PUBSUB_TT_CREATE_CT, timer:now_diff(os:timestamp(), TimeBeforeCreateNode)),
     timer:sleep(2000),
+
     NeighbourIds = lists:delete(MyId, lists:seq(max(1,MyId-?NUMBER_OF_PREV_NEIGHBOURS),
-                                                 MyId+?NUMBER_OF_NEXT_NEIGHBOURS)),
-    subscribe_to_neighbour_nodes(MyJID, Client, NeighbourIds),
-    pubsub_utils:publish_to_node(MyJID, MyId, Client, ?PUBSUB_ADDR, NodeName).
-
-%%     push_messages(MyJID, Client, NeighbourIds).
+                                                MyId+?NUMBER_OF_NEXT_NEIGHBOURS)),
 
 
 
-subscribe_to_neighbour_nodes(MyJid, Client, Ids) ->
-    [pubsub_utils:subscribe_to_node(MyJid, Client, Id, ?PUBSUB_ADDR) || Id <- Ids].
+    case (MyId rem 2 == 0) of
+        false ->
+            subscribe_to_neighbour_nodes(MyJID, MyId, Client, NeighbourIds),
+            receive_forever(Client);
+        true ->
+            pubsub_utils:publish_to_node(MyJID, MyId, Client, ?PUBSUB_ADDR, NodeName)
+    end,
 
+    timer:sleep(60000).
+
+    %% TimeBeforeDeleteNode = os:timestamp(),
+    %% pubsub_utils:delete_node(MyJID, Client, MyId, ?PUBSUB_ADDR),
+    %% exometer:update(?MESSAGE_PUBSUB_TTD_CT, timer:now_diff(os:timestamp(), TimeBeforeDeleteNode)),
+
+subscribe_to_neighbour_nodes(MyJid, _MyId, Client, NeighboursIds) ->
+    [begin
+         TimeBeforeSubscribe = os:timestamp(),
+         NodeName = pubsub_utils:make_pubsub_node_id(NeighbourId),
+         pubsub_utils:subscribe_to_node(MyJid, Client, NeighbourId, ?PUBSUB_ADDR, NodeName),
+         exometer:update(?PUBSUB_TT_SUBSCRIBE_CT, timer:now_diff(os:timestamp(), TimeBeforeSubscribe))
+     end || NeighbourId <- NeighboursIds].
 
 receive_forever(Client) ->
-    Stanza = escalus_connection:get_stanza(Client, message, infinity),
     Now = usec:from_now(os:timestamp()),
-    case Stanza of
-        #xmlel{name = <<"message">>, attrs=Attrs} ->
-            case lists:keyfind(<<"timestamp">>, 1, Attrs) of
-                {_, Sent} ->
-                    TTD = (Now - binary_to_integer(Sent)),
-                    exometer:update(?MESSAGE_TTD_CT, TTD);
-                _ ->
-                    ok
-            end;
+    case escalus_connection:get_stanza(Client, message, infinity) of
+        Msg = #xmlel{name = <<"message">>} ->
+            lager:warning("<><><><><><><><> ~p ",[Msg]),
+            SentAt = get_timestamp_from_message(Msg),
+            Delay = Now - binary_to_integer(SentAt) ,
+            exometer:update(?PUBSUB_TT_RECEIVE_CT, Delay);
         _ ->
             ok
-    end,
-    receive_forever(Client).
+    end.
+%%    receive_forever(Client).
+
+%% ...extracting previously published timestamp
+get_timestamp_from_message(EventMessage = #xmlel{name = <<"message">>}) ->
+    Event = exml_query:subelement(EventMessage, <<"event">>),
+    ItemsWrapper = exml_query:subelement(Event, <<"items">>),
+    Items = exml_query:subelements(ItemsWrapper, <<"item">>),
+    Item = hd(Items),
+    Entry = exml_query:subelement(Item, <<"entry">>),
+    TimeStampEl = exml_query:subelement(Entry, <<"MSG_SENT_AT">>),
+    TimeStamp = exml_query:cdata(TimeStampEl),
+    TimeStamp.
+
+
 
 allow_only_pubsub_related(Stanza) ->
      escalus_pred:is_stanza_from(?PUBSUB_ADDR, Stanza).
