@@ -15,11 +15,11 @@
 -include("pubsub_common.hrl").
 
 -define(CHECKER_SESSIONS_INDICATOR, 10). %% How often a checker session should be generated
--define(SLEEP_TIME_AFTER_SCENARIO, 10000). %% wait 10s after scenario before disconnecting
+-define(SLEEP_TIME_AFTER_SCENARIO, 30000). %% wait 10s after scenario before disconnecting
 -define(NUMBER_OF_PREV_NEIGHBOURS, 0). %2
 -define(NUMBER_OF_NEXT_NEIGHBOURS, 1). %2
 -define(NUMBER_OF_SEND_MESSAGE_REPEATS, 20).
--define(SLEEP_TIME_AFTER_EVERY_MESSAGE, 10000).
+-define(SLEEP_TIME_AFTER_EVERY_MESSAGE, 120000).
 
 -define(PUBSUB_ADDR, <<"pubsub.", (?HOST)/binary>>).
 
@@ -81,12 +81,10 @@ do(_, MyJID, MyId, Client) ->
     escalus_connection:set_filter_predicate(Client, fun allow_only_pubsub_related/1),
 
     pubsub_utils:send_presence_available(Client),
-    timer:sleep(1000),
-
-    TimeBeforeCreateNode = os:timestamp(),
 
     NodeName = pubsub_utils:make_pubsub_node_id(MyId),
 
+    TimeBeforeCreateNode = os:timestamp(),
     pubsub_utils:create_node(MyJID, MyId, Client, ?PUBSUB_ADDR, NodeName),
     exometer:update(?PUBSUB_TT_CREATE_CT, timer:now_diff(os:timestamp(), TimeBeforeCreateNode)),
     timer:sleep(2000),
@@ -95,16 +93,19 @@ do(_, MyJID, MyId, Client) ->
                                                 MyId+?NUMBER_OF_NEXT_NEIGHBOURS)),
 
 
-
     case (MyId rem 2 == 0) of
         false ->
             subscribe_to_neighbour_nodes(MyJID, MyId, Client, NeighbourIds),
             receive_forever(Client);
         true ->
+            %%publisher subscribes to its own topic as well (Intel CCF case)
+            pubsub_utils:subscribe_to_node(MyJID, Client, MyId, ?PUBSUB_ADDR, NodeName),
             pubsub_utils:publish_to_node(MyJID, MyId, Client, ?PUBSUB_ADDR, NodeName)
     end,
 
-    timer:sleep(60000).
+    timer:sleep(60000),
+    pubsub_utils:send_presence_unavailable(Client),
+    escalus_connection:stop(Client).
 
     %% TimeBeforeDeleteNode = os:timestamp(),
     %% pubsub_utils:delete_node(MyJID, Client, MyId, ?PUBSUB_ADDR),
@@ -119,17 +120,17 @@ subscribe_to_neighbour_nodes(MyJid, _MyId, Client, NeighboursIds) ->
      end || NeighbourId <- NeighboursIds].
 
 receive_forever(Client) ->
-    Now = usec:from_now(os:timestamp()),
     case escalus_connection:get_stanza(Client, message, infinity) of
         Msg = #xmlel{name = <<"message">>} ->
+            Now = usec:from_now(os:timestamp()),
             lager:warning("<><><><><><><><> ~p ",[Msg]),
             SentAt = get_timestamp_from_message(Msg),
             Delay = Now - binary_to_integer(SentAt) ,
             exometer:update(?PUBSUB_TT_RECEIVE_CT, Delay);
         _ ->
             ok
-    end.
-%%    receive_forever(Client).
+    end,
+    receive_forever(Client).
 
 %% ...extracting previously published timestamp
 get_timestamp_from_message(EventMessage = #xmlel{name = <<"message">>}) ->
