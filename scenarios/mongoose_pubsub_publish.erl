@@ -15,11 +15,11 @@
 -include("pubsub_common.hrl").
 
 -define(CHECKER_SESSIONS_INDICATOR, 10). %% How often a checker session should be generated
--define(SLEEP_TIME_AFTER_SCENARIO, 30000). %% wait 10s after scenario before disconnecting
+-define(SLEEP_TIME_AFTER_SCENARIO, 90000). %% wait 10s after scenario before disconnecting
 -define(NUMBER_OF_PREV_NEIGHBOURS, 0). %2
 -define(NUMBER_OF_NEXT_NEIGHBOURS, 1). %2
 -define(NUMBER_OF_SEND_MESSAGE_REPEATS, 20).
--define(SLEEP_TIME_AFTER_EVERY_MESSAGE, 120000).
+-define(SLEEP_TIME_AFTER_EVERY_MESSAGE, 200000).
 
 -define(PUBSUB_ADDR, <<"pubsub.", (?HOST)/binary>>).
 
@@ -87,7 +87,7 @@ do(_, MyJID, MyId, Client) ->
     TimeBeforeCreateNode = os:timestamp(),
     pubsub_utils:create_node(MyJID, MyId, Client, ?PUBSUB_ADDR, NodeName),
     exometer:update(?PUBSUB_TT_CREATE_CT, timer:now_diff(os:timestamp(), TimeBeforeCreateNode)),
-    timer:sleep(2000),
+    timer:sleep(1000),
 
     NeighbourIds = lists:delete(MyId, lists:seq(max(1,MyId-?NUMBER_OF_PREV_NEIGHBOURS),
                                                 MyId+?NUMBER_OF_NEXT_NEIGHBOURS)),
@@ -103,7 +103,7 @@ do(_, MyJID, MyId, Client) ->
             pubsub_utils:publish_to_node(MyJID, MyId, Client, ?PUBSUB_ADDR, NodeName)
     end,
 
-    timer:sleep(60000),
+    timer:sleep(3*60000),
     pubsub_utils:send_presence_unavailable(Client),
     escalus_connection:stop(Client).
 
@@ -124,12 +124,15 @@ receive_forever(Client) ->
         Msg = #xmlel{name = <<"message">>} ->
             Now = usec:from_now(os:timestamp()),
             lager:warning("<><><><><><><><> ~p ",[Msg]),
-            SentAt = get_timestamp_from_message(Msg),
-            Delay = Now - binary_to_integer(SentAt) ,
-            exometer:update(?PUBSUB_TT_RECEIVE_CT, Delay);
-        _ ->
-            ok
-    end,
+            case get_timestamp_from_message(Msg) of
+                {ok, SentAt} ->  Delay = Now - binary_to_integer(SentAt),
+                                 lager:warning("@@@DELAY (ms) @@@@@,~p~n", [Delay/100]),
+                                 exometer:update(?PUBSUB_TT_RECEIVE_CT, Delay);
+                _ ->
+                    lager:warning("###### publisher retracted items ######")
+            end;
+            _ -> ok
+                                           end,
     receive_forever(Client).
 
 %% ...extracting previously published timestamp
@@ -137,16 +140,23 @@ get_timestamp_from_message(EventMessage = #xmlel{name = <<"message">>}) ->
     Event = exml_query:subelement(EventMessage, <<"event">>),
     ItemsWrapper = exml_query:subelement(Event, <<"items">>),
     Items = exml_query:subelements(ItemsWrapper, <<"item">>),
-    Item = hd(Items),
-    Entry = exml_query:subelement(Item, <<"entry">>),
-    TimeStampEl = exml_query:subelement(Entry, <<"MSG_SENT_AT">>),
-    TimeStamp = exml_query:cdata(TimeStampEl),
-    TimeStamp.
 
-
+    case Items of
+        [] -> {error, 666};
+        _  ->
+            Item = hd(Items),
+            Entry = exml_query:subelement(Item, <<"entry">>),
+            TimeStampEl = exml_query:subelement(Entry, <<"MSG_SENT_AT">>),
+            TimeStamp = exml_query:cdata(TimeStampEl),
+            {ok, TimeStamp}
+    end.
 
 allow_only_pubsub_related(Stanza) ->
      escalus_pred:is_stanza_from(?PUBSUB_ADDR, Stanza).
+
+
+
+
 
 
 
