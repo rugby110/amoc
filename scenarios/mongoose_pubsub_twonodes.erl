@@ -80,12 +80,13 @@ start(MyId) ->
 
 
 is_listener_selector(MyId) ->
-    case (MyId rem 2 == 0) of
-        false ->
-            true;
-        true ->
-            false
-    end.
+    Res = case (MyId rem 2 == 0) of
+              false ->
+                  true;
+              true ->
+                  false
+          end,
+    Res.
 
 do(_, MyJID, MyId, Client) ->
 
@@ -103,7 +104,7 @@ do(_, MyJID, MyId, Client) ->
     NeighbourIds = lists:delete(MyId, lists:seq(max(1,MyId-?NUMBER_OF_PREV_NEIGHBOURS),
                                                 MyId+?NUMBER_OF_NEXT_NEIGHBOURS)),
 
-    case is_listener_selector(MyJID) of
+    case is_listener_selector(MyId) of
         false ->
              %%publisher subscribes to its own topic as well (Intel CCF case)
              pubsub_utils:subscribe_to_node(MyJID, Client, MyId, ?PUBSUB_ADDR, NodeName),
