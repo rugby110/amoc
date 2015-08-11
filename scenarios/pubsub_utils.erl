@@ -11,6 +11,7 @@
 
 -export([
          make_user/2,
+         make_user_for_node/3,
          create_node/5,
          make_jid/1,
          make_pubsub_node_id/1,
@@ -32,11 +33,30 @@ user_spec(ProfileId, Password, Res) ->
       {resource, Res}
     ].
 
-make_user(Id, R) ->
+user_spec_for_node(ProfileId, Password, Res, NodeIP) ->
+    [ {username, ProfileId},
+      {server, ?HOST},
+      {host, NodeIP},
+      {password, Password},
+      {carbons, false},
+      {stream_management, false},
+      {resource, Res}
+    ].
+
+
+make_user_common(Id, R) ->
     BinId = integer_to_binary(Id),
     ProfileId = <<"user_", BinId/binary>>,
     Password = <<"password_", BinId/binary>>,
+    {BinId, ProfileId, Password}.
+
+make_user(Id, R) ->
+    {BinId, ProfileId, Password} = make_user_common(Id, R),
     user_spec(ProfileId, Password, R).
+
+make_user_for_node(Id, R, NodeIP) ->
+    {BinId, ProfileId, Password} = make_user_common(Id, R),
+    user_spec_for_node(ProfileId, Password, R, NodeIP).
 
 pick_server(Servers) ->
     S = size(Servers),
@@ -127,10 +147,10 @@ publish_to_node(MyJID, Id, Client, PubSubAddr, NodeName) ->
                                                                               PublishItemId,
                                                                               MyJID,
                                                                               sample_time),
-    lager:warning("publish request ~p", [PublishToNodeStanza]),
+    lager:warning("~n publish request ~p at ~p ~n", [PublishToNodeStanza, node()]),
     escalus_connection:send(Client, PublishToNodeStanza),
     PublishResponse = escalus_connection:get_stanza(Client, pub_own_resp, 5000),
-    lager:warning("~n publish response for process ~p, client ~p: ~p~n", [self(),Id, PublishResponse]).
+    lager:warning("~n publish resp for proc ~p, client ~p: ~p~n", [self(),Id, PublishResponse]).
 
 
 
