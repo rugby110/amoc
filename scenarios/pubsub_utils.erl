@@ -54,9 +54,9 @@ make_user(Id, R) ->
     {BinId, ProfileId, Password} = make_user_common(Id, R),
     user_spec(ProfileId, Password, R).
 
-make_user_for_node(Id, R, NodeIP) ->
+make_user_for_node(Id, R, Node) ->
     {BinId, ProfileId, Password} = make_user_common(Id, R),
-    user_spec_for_node(ProfileId, Password, R, NodeIP).
+    user_spec_for_node(ProfileId, Password, R, Node).
 
 pick_server(Servers) ->
     S = size(Servers),
@@ -88,7 +88,7 @@ delete_node(_MyJID, Client, Id, PubSubAddr) ->
     DeleteNode = escalus_pubsub_stanza:delete_node_stanza(NodeName),
     Id = <<"delete1">>,
     DeleteNodeIq  =  escalus_pubsub_stanza:iq_with_id(set, Id, PubSubAddr, Client,  [DeleteNode]),
-    lager:warning(" REQUEST DeleteNodeIq: ~n~n~p~n",[DeleteNodeIq]),
+    lager:debug(" REQUEST DeleteNodeIq: ~n~n~p~n",[DeleteNodeIq]),
     escalus_connection:send(Client, DeleteNodeIq).
     %%{true, _RecvdStanza} = wait_for_stanza_and_match_result_iq(User, Id, NodeAddr).
 
@@ -98,7 +98,7 @@ subscribe_to_node(MyJID, Client, Id, PubSubAddr, NodeName) ->
     SubscribeStanza = escalus_pubsub_stanza:subscribe_by_user_stanza(MyJID, <<"subscrid">>, NodeName, PubSubAddr),
     escalus_connection:send(Client, SubscribeStanza),
     SubResp = escalus_connection:get_stanza(Client, sub_resp, 5000),
-    lager:warning("~n SUBSCRIBE RESPONSE for process ~p ~p ~n", [self(),SubResp]).
+    lager:debug("~n SUBSCRIBE RESPONSE for process ~p ~p ~n", [self(),SubResp]).
 
 
 create_node(MyJID, _Id, Client, PubSubAddr, NodeName) ->
@@ -147,10 +147,10 @@ publish_to_node(MyJID, Id, Client, PubSubAddr, NodeName) ->
                                                                               PublishItemId,
                                                                               MyJID,
                                                                               sample_time),
-    lager:warning("~n publish request ~p at ~p ~n", [PublishToNodeStanza, node()]),
+    lager:debug("~n publish request ~p at ~p ~n", [PublishToNodeStanza, node()]),
     escalus_connection:send(Client, PublishToNodeStanza),
     PublishResponse = escalus_connection:get_stanza(Client, pub_own_resp, 5000),
-    lager:warning("~n publish resp for proc ~p, client ~p: ~p~n", [self(),Id, PublishResponse]).
+    lager:debug("~n publish resp for proc ~p, client ~p: ~p~n", [self(),Id, PublishResponse]).
 
 
 
