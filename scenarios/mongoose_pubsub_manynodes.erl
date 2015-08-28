@@ -79,6 +79,7 @@ start(MyId) ->
     do(IsChecker, <<MyJID/binary, "/" , Res/binary>>, MyId, Client),
 
     timer:sleep(timer:minutes(10)),
+    flush_msgs(),
     pubsub_utils:send_presence_unavailable(Client),
     escalus_connection:stop(Client).
 
@@ -93,8 +94,16 @@ do(_, MyJID, MyId, Client) ->
                              MyId+?NUMBER_OF_NEXT_NEIGHBOURS),
 
     subscribe_to_neighbour_nodes(MyJID, MyId, Client, NeighbourIds),
+    flush_msgs(),
     publish_to_neighbour_nodes(MyJID, MyId, Client, NeighbourIds).
 
+flush_msgs() ->
+    receive
+        _ ->
+            flush_msgs()
+    after 0 ->
+        ok
+    end.
 
 subscribe_to_neighbour_nodes(MyJid, MyId, Client, NeighbourIds) ->
     [begin
@@ -108,9 +117,7 @@ subscribe_to_neighbour_nodes(MyJid, MyId, Client, NeighbourIds) ->
 publish_to_neighbour_nodes(MyJid, MyId, Client, NeighbourIds) ->
     [begin
          timer:sleep(?SLEEP_TIME_AFTER_EVERY_MESSAGE),
-         TimeBeforeSubscribe = os:timestamp(),
          NodeName = pubsub_utils:make_pubsub_node_id(NeighbourId),
-         exometer:update(?PUBSUB_TT_SUBSCRIBE_CT, timer:now_diff(os:timestamp(), TimeBeforeSubscribe)),
          pubsub_utils:publish_to_node(MyJid, MyId, Client, ?PUBSUB_ADDR, NodeName)
      end || NeighbourId <- NeighbourIds].
 
@@ -118,12 +125,13 @@ publish_to_neighbour_nodes(MyJid, MyId, Client, NeighbourIds) ->
 receive_forever(Client) ->
     case escalus_connection:get_stanza(Client, message, infinity) of
         Msg = #xmlel{name = <<"message">>} ->
-            Now = usec:from_now(os:timestamp()),
             lager:warning("<><><><><><>from ~p <><> ~p~n ",[node(), Msg]),
+            Now = usec:from_now(os:timestamp()),
             case get_timestamp_from_message(Msg) of
-                {ok, SentAt} ->  Delay = Now - binary_to_integer(SentAt),
-                                 lager:warning("@@@DELAY (ms) @@@@@,~p~n", [Delay/100]),
-                                 exometer:update(?PUBSUB_TT_RECEIVE_CT, Delay);
+                {ok, SentAt} ->
+                    Delay = Now - binary_to_integer(SentAt),
+                    lager:warning("@@@DELAY (ms) @@@@@,~p~n", [Delay/100]),
+                    exometer:update(?PUBSUB_TT_RECEIVE_CT, Delay);
                 _ ->
                     lager:warning("###### publisher retracted items ######")
             end;
