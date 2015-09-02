@@ -74,6 +74,7 @@ start(MyId) ->
     maybe_create_node_and_subscribe(MyId, NodeID, MyJID, Client),
     timer:sleep(1000),
 
+    flush_msgs(),
     do(IsChecker, MyJID, MyId, NodeID, Client),
 
     timer:sleep(timer:minutes(10)),
@@ -116,6 +117,7 @@ flush_msgs() ->
     end.
 
 publish_to_node(MyJid, MyId, Client, NodeName) ->
+    flush_msgs(),
     timer:sleep(?SLEEP_TIME_AFTER_EVERY_MESSAGE),
     pubsub_utils:publish_to_node(MyJid, MyId, Client, ?PUBSUB_ADDR, NodeName).
 
@@ -164,6 +166,7 @@ user_spec(ProfileId, Password, Res) ->
       {password, Password},
       {carbons, false},
       {stream_management, false},
+      {starttls, required},
       {resource, Res}
     ].
 
