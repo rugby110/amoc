@@ -73,12 +73,11 @@ start(MyId) ->
     MyJID = <<MyBareJID/binary, "/" , Res/binary>>,
     maybe_create_node_and_subscribe(MyId, NodeID, MyJID, Client),
     timer:sleep(1000),
-
     flush_msgs(),
     do(IsChecker, MyJID, MyId, NodeID, Client),
-
-    timer:sleep(timer:minutes(10)),
     flush_msgs(),
+    escalus_connection:set_filter_predicate(Client, none),
+    timer:sleep(timer:minutes(10)),
     pubsub_utils:send_presence_unavailable(Client),
     escalus_connection:stop(Client).
 
