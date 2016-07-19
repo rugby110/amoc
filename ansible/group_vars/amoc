@@ -1,2 +1,35 @@
 amoc:
-    interarrival: 75
+   # amoc settings:
+   interarrival: 3 # wait this many ms, before creating next user (per node)
+   repeat_interval: 0 # wait this many ms, before restarting the scenario after it finishes
+   repeat_num: infinity # restart the scenario this many times
+
+   # scenario-specific settings:
+   xmpp_host: '<<"chat-preprod1.grindr.com">>'
+   # xmpp_servers: '{<<"54.87.233.150">>, <<"54.84.241.42">>}' # erlang tuple with ip/host binaries
+   xmpp_servers: '{<<"qa-chat.grindr.com">>}' # erlang tuple with ip/host binaries
+   avg_sleep_time_after_scenario: 10000 # in ms
+   no_of_prev_neighbours: 0 # we send messages to this many users with id < our id
+   no_of_next_neighbours: 2 # we send messages to this many users with id > our id
+   no_of_messages_repeats: 1 # we send this number of messages to each of the neighbour
+   avg_sleep_time_after_message: 30000 # in ms
+
+   # roughly, each user session lasts:
+   # no_of_messages_repeats * 
+   #              ((no_of_prev_neighbours + no_of_next_neighbours) * sleep_time_after_message) 
+   #       + sleep_time_after_scenario
+   # when this finishes, amoc waits for repeat_interval ms and restarts the
+   # scenario until it's executed for repeat_num times.
+
+   spammer_neighbours: 1000 # spam this many users
+   spammer_msg_length: 1000 # length of a spam message
+   spammer_interarrival: 900000 # in ms, wait time between two attacks of the same user
+   spammer_sleep: 10 # delay between msgs
+
+   watcher_session: 199 # this value and number of load generation nodes should be coprime
+   spammer_session: 1000000
+
+   # client capabilities
+   starttls: required
+   carbons: 'false'
+   stream_management: 'false' # false needs to be sent as string, otherwise j2 changes it to False o.O
